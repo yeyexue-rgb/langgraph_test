@@ -11,6 +11,7 @@ from domain.time_parser import (
     TimeParseError,
     UnsupportedTimeExpression,
     parse_natural_time,
+    parse_time_range,
 )
 
 
@@ -75,6 +76,111 @@ class TestWeekday:
             reference_time=REFERENCE,
         )
         assert result["resolved_time"] == "2026-08-09T09:00:00+08:00"
+
+    def test_next_next_week_monday(self) -> None:
+        result = parse_natural_time(
+            "下下周一",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-17T09:00:00+08:00"
+
+    def test_this_week_friday_with_prefix(self) -> None:
+        result = parse_natural_time(
+            "本周五",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-07T09:00:00+08:00"
+
+    def test_xingqi_variant(self) -> None:
+        result = parse_natural_time(
+            "下星期三",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-12T09:00:00+08:00"
+
+
+class TestExtendedExpressions:
+    """扩展表达式：大后天/前天/周偏移/周末/月底。"""
+
+    def test_three_days_later_keyword(self) -> None:
+        result = parse_natural_time(
+            "大后天",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-06T09:00:00+08:00"
+
+    def test_three_days_later_keyword_beats_houtian(
+        self,
+    ) -> None:
+        result = parse_natural_time(
+            "大后天",
+            reference_time=REFERENCE,
+        )
+        assert any(
+            "relative_day:大后天" in rule
+            for rule in result["matched_rules"]
+        )
+
+    def test_day_before_yesterday(self) -> None:
+        result = parse_natural_time(
+            "前天",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-01T09:00:00+08:00"
+
+    def test_chinese_day_offset(self) -> None:
+        result = parse_natural_time(
+            "三天后",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-06T09:00:00+08:00"
+
+    def test_week_offset(self) -> None:
+        result = parse_natural_time(
+            "2周后",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-17T09:00:00+08:00"
+
+    def test_weekend_from_monday(self) -> None:
+        # 2026-08-03 是周一，最近的周六是 08-08。
+        result = parse_natural_time(
+            "周末",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-08T09:00:00+08:00"
+
+    def test_month_end(self) -> None:
+        result = parse_natural_time(
+            "月底",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-31T09:00:00+08:00"
+
+
+class TestChineseClock:
+    """中文数字时刻解析。"""
+
+    def test_chinese_hour_with_period(self) -> None:
+        result = parse_natural_time(
+            "明天下午三点",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-04T15:00:00+08:00"
+
+    def test_half_hour(self) -> None:
+        result = parse_natural_time(
+            "明天下午三点半",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-04T15:30:00+08:00"
+
+    def test_quarter_hour(self) -> None:
+        result = parse_natural_time(
+            "明天上午十点一刻",
+            reference_time=REFERENCE,
+        )
+        assert result["resolved_time"] == "2026-08-04T10:15:00+08:00"
 
 
 class TestAbsoluteDate:
@@ -185,3 +291,67 @@ class TestDeterminism:
         )
         assert any("period:下午" in r for r in result["matched_rules"])
         assert any("clock:15:00" in r for r in result["matched_rules"])
+
+
+class TestTimeRange:
+    """时间段解析。"""
+
+    def test_same_day_clock_range_pm_inferred(self) -> None:
+        result = parse_time_range(
+            "明天下午3点到5点",
+            reference_time=REFERENCE,
+        )
+        assert result["start_time"] == "2026-08-04T15:00:00+08:00"
+        assert result["end_time"] == "2026-08-04T17:00:00+08:00"
+        assert result["precision"] == "minute"
+        assert any(
+            "range_end_pm_inferred" in rule
+            for rule in result["matched_rules"]
+        )
+
+    def test_date_only_range(self) -> None:
+        result = parse_time_range(
+            "明天到后天",
+            reference_time=REFERENCE,
+        )
+        assert result["start_time"] == "2026-08-04T09:00:00+08:00"
+        assert result["end_time"] == "2026-08-05T18:00:00+08:00"
+        assert result["precision"] == "date"
+
+    def test_overnight_range_rolls_to_next_day(self) -> None:
+        result = parse_time_range(
+            "今天23点到凌晨2点",
+            reference_time=REFERENCE,
+        )
+        assert result["start_time"] == "2026-08-03T23:00:00+08:00"
+        assert result["end_time"] == "2026-08-04T02:00:00+08:00"
+        assert any(
+            "range_end_rolls_to_next_day" in rule
+            for rule in result["matched_rules"]
+        )
+
+    def test_range_with_explicit_dates(self) -> None:
+        result = parse_time_range(
+            "2026年8月5日9点到2026年8月6日18点",
+            reference_time=REFERENCE,
+        )
+        assert result["start_time"] == "2026-08-05T09:00:00+08:00"
+        assert result["end_time"] == "2026-08-06T18:00:00+08:00"
+
+    def test_end_before_start_raises(self) -> None:
+        with pytest.raises(TimeParseError, match="结束时间"):
+            parse_time_range(
+                "2026年8月5日9点到2026年8月1日9点",
+                reference_time=REFERENCE,
+            )
+
+    def test_no_separator_unsupported(self) -> None:
+        with pytest.raises(UnsupportedTimeExpression):
+            parse_time_range(
+                "某个时间段",
+                reference_time=REFERENCE,
+            )
+
+    def test_empty_text_raises(self) -> None:
+        with pytest.raises(TimeParseError, match="不能为空"):
+            parse_time_range("   ", reference_time=REFERENCE)
