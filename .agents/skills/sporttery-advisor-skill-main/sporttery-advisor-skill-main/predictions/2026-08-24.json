@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-08-23T23:05:00+08:00",
+  "apiLastUpdateTime": "2026-08-23 22:51:26",
+  "businessDate": "2026-08-23",
+  "matchDate": "2026-08-24",
+  "budget": 600,
+  "dataNote": "业务日2026-08-23共10场全部在售；所有场次HAD/HHAD均不支持单关，单关玩法仅限HAFU/CRS/TTG；波尔图(-2)为相对深盘",
+  "matches": [
+    { "matchNumStr": "周日018", "homeTeam": "弗洛西诺", "awayTeam": "尤文图斯", "matchTime": "00:30:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日019", "homeTeam": "威尼斯", "awayTeam": "莱切", "matchTime": "00:30:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日020", "homeTeam": "圣克拉拉", "awayTeam": "法马利康", "matchTime": "01:00:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日021", "homeTeam": "赫塔费", "awayTeam": "桑坦德", "matchTime": "01:30:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日022", "homeTeam": "都灵", "awayTeam": "AC米兰", "matchTime": "02:45:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日023", "homeTeam": "亚特兰大", "awayTeam": "萨索洛", "matchTime": "02:45:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日024", "homeTeam": "埃尔切", "awayTeam": "巴萨", "matchTime": "03:30:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日025", "homeTeam": "波尔图", "awayTeam": "阿罗卡", "matchTime": "03:30:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日026", "homeTeam": "新英格兰", "awayTeam": "纽约城", "matchTime": "04:30:00", "matchDate": "2026-08-24" },
+    { "matchNumStr": "周日027", "homeTeam": "桑托斯", "awayTeam": "米拉索尔", "matchTime": "05:30:00", "matchDate": "2026-08-24" }
+  ],
+  "plans": [
+    {
+      "name": "稳健保底",
+      "type": "主票",
+      "play": "让球胜平负 2串1",
+      "bet": "买「新英格兰 让一球 平+负」串「桑托斯 让一球 平+负」，50倍",
+      "amount": 400,
+      "returns": "309.29-1177.80元",
+      "matches": ["新英格兰 vs 纽约城", "桑托斯 vs 米拉索尔"]
+    },
+    {
+      "name": "价值发现",
+      "type": "加仓",
+      "play": "半全场 单关双选",
+      "bet": "买「桑托斯 主/主+平/主」，35倍",
+      "amount": 140,
+      "returns": "196.00-318.50元",
+      "matches": ["桑托斯 vs 米拉索尔"]
+    },
+    {
+      "name": "高危搏杀",
+      "type": "冷门",
+      "play": "猜比分 双比分",
+      "bet": "买「圣克拉拉 vs 法马利康 1:1+0:0」，15倍",
+      "amount": 60,
+      "returns": "162.00-195.00元",
+      "matches": ["圣克拉拉 vs 法马利康"]
+    }
+  ]
+}

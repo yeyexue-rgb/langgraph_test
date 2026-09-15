@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-08-19T21:54:05+08:00",
+  "apiLastUpdateTime": "2026-08-19 21:54:05",
+  "businessDate": "2026-08-19",
+  "matchDate": "2026-08-20",
+  "budget": 50,
+  "matches": [
+    { "matchNumStr": "周三002", "homeTeam": "马竞", "awayTeam": "马拉加", "matchTime": "03:00:00" },
+    { "matchNumStr": "周三003", "homeTeam": "波特诺", "awayTeam": "帕梅拉斯", "matchTime": "06:00:00" },
+    { "matchNumStr": "周三004", "homeTeam": "纽约红牛", "awayTeam": "纳什维尔", "matchTime": "07:30:00" },
+    { "matchNumStr": "周三005", "homeTeam": "科罗拉多", "awayTeam": "洛杉矶FC", "matchTime": "09:30:00" },
+    { "matchNumStr": "周三006", "homeTeam": "凯尔特人", "awayTeam": "LASK林茨", "matchTime": "03:00:00" },
+    { "matchNumStr": "周三007", "homeTeam": "奈梅亨", "awayTeam": "博德闪耀", "matchTime": "03:00:00" },
+    { "matchNumStr": "周三008", "homeTeam": "布拉迪斯", "awayTeam": "采列", "matchTime": "03:00:00" }
+  ],
+  "plans": [
+    {
+      "name": "稳健保底",
+      "type": "主票",
+      "play": "让球胜平负 2串1",
+      "bet": "买「凯尔特人 让一球 胜+平」串「奈梅亨 让一球 平+负」，4倍",
+      "amount": 32,
+      "returns": "42.88-93.92元",
+      "matches": ["凯尔特人 vs LASK林茨", "奈梅亨 vs 博德闪耀"]
+    },
+    {
+      "name": "价值发现",
+      "type": "加仓",
+      "play": "胜平负 单关",
+      "bet": "买「凯尔特人 胜+平+负」，3倍",
+      "amount": 12,
+      "returns": "9.60-22.20元",
+      "matches": ["凯尔特人 vs LASK林茨"]
+    },
+    {
+      "name": "高危搏杀",
+      "type": "冷门",
+      "play": "猜比分",
+      "bet": "买「奈梅亨 vs 博德闪耀 1:1」，3倍",
+      "amount": 6,
+      "returns": "22.50元",
+      "matches": ["奈梅亨 vs 博德闪耀"]
+    }
+  ]
+}

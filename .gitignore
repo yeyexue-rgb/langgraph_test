@@ -1,0 +1,11 @@
+# SQLite 短期记忆数据文件
+data/*.sqlite3
+data/*.sqlite3-shm
+data/*.sqlite3-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.env

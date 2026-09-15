@@ -1,0 +1,50 @@
+{
+  "generatedAt": "2026-08-24T21:30:00+08:00",
+  "apiLastUpdateTime": "2026-08-24 21:14:31",
+  "businessDate": "2026-08-24",
+  "matchDate": "2026-08-25",
+  "budget": 600,
+  "dataNote": "业务日2026-08-24共11场全部在售；HAD单关仅周一006罗马vs佛罗伦萨和周一008富勒姆vs切尔西支持；吉达联合HAD1.35为相对深盘",
+  "matches": [
+    { "matchNumStr": "周一001", "homeTeam": "博洛尼亚", "awayTeam": "拉齐奥", "matchTime": "00:30:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一002", "homeTeam": "新未来SC", "awayTeam": "胡巴卡德", "matchTime": "00:40:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一003", "homeTeam": "马尔默", "awayTeam": "佐加顿斯", "matchTime": "01:00:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一004", "homeTeam": "奥萨苏纳", "awayTeam": "莱万特", "matchTime": "01:30:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一005", "homeTeam": "吉达联合", "awayTeam": "拉斯决心", "matchTime": "02:00:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一006", "homeTeam": "罗马", "awayTeam": "佛罗伦萨", "matchTime": "02:45:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一007", "homeTeam": "兰斯", "awayTeam": "阿纳西", "matchTime": "02:45:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一008", "homeTeam": "富勒姆", "awayTeam": "切尔西", "matchTime": "03:00:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一009", "homeTeam": "吉维森特", "awayTeam": "卡萨皮亚", "matchTime": "03:15:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一010", "homeTeam": "马拉加", "awayTeam": "拉科", "matchTime": "03:30:00", "matchDate": "2026-08-25" },
+    { "matchNumStr": "周一011", "homeTeam": "博塔弗戈", "awayTeam": "巴竞技", "matchTime": "07:00:00", "matchDate": "2026-08-25" }
+  ],
+  "plans": [
+    {
+      "name": "稳健保底",
+      "type": "主票",
+      "play": "让球胜平负 2串1",
+      "bet": "买「马尔默 让一球 胜+平」串「兰斯 让一球 胜+平」，40倍",
+      "amount": 400,
+      "returns": "182.41-1101.60元",
+      "matches": ["马尔默 vs 佐加顿斯", "兰斯 vs 阿纳西"]
+    },
+    {
+      "name": "价值发现",
+      "type": "加仓",
+      "play": "胜平负 单关双选",
+      "bet": "买「富勒姆 胜+平」，38倍",
+      "amount": 152,
+      "returns": "296.40-615.60元",
+      "matches": ["富勒姆 vs 切尔西"]
+    },
+    {
+      "name": "高危搏杀",
+      "type": "冷门",
+      "play": "猜比分 双比分",
+      "bet": "买「博洛尼亚 vs 拉齐奥 1:1+0:0」，12倍",
+      "amount": 48,
+      "returns": "138.00-216.00元",
+      "matches": ["博洛尼亚 vs 拉齐奥"]
+    }
+  ]
+}

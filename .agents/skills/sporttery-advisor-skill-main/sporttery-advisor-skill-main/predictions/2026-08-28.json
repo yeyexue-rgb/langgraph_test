@@ -1,0 +1,46 @@
+{
+  "generatedAt": "2026-08-27T23:18:09+08:00",
+  "businessDate": "2026-08-27",
+  "matchDate": "2026-08-28",
+  "budget": 200,
+  "matches": [
+    { "matchNumStr": "周四001", "homeTeam": "比尔森", "awayTeam": "贝红星", "league": "欧罗巴", "matchTime": "01:00:00" },
+    { "matchNumStr": "周四002", "homeTeam": "奥莫尼亚", "awayTeam": "圣图尔登", "league": "欧罗巴", "matchTime": "01:00:00" },
+    { "matchNumStr": "周四003", "homeTeam": "萨尔茨堡", "awayTeam": "米亚尔比", "league": "欧罗巴", "matchTime": "01:00:00" },
+    { "matchNumStr": "周四004", "homeTeam": "奥胡斯", "awayTeam": "本菲卡", "league": "欧罗巴", "matchTime": "02:00:00" },
+    { "matchNumStr": "周四005", "homeTeam": "费伦茨", "awayTeam": "特拉布宗", "league": "欧罗巴", "matchTime": "02:30:00" },
+    { "matchNumStr": "周四006", "homeTeam": "安德莱", "awayTeam": "阿拉木图", "league": "欧罗巴", "matchTime": "02:30:00" },
+    { "matchNumStr": "周四007", "homeTeam": "塞尔塔", "awayTeam": "奥萨苏纳", "league": "西甲", "matchTime": "02:30:00" },
+    { "matchNumStr": "周四008", "homeTeam": "巴萨", "awayTeam": "毕尔巴鄂", "league": "西甲", "matchTime": "03:00:00" },
+    { "matchNumStr": "周四009", "homeTeam": "巴西国际", "awayTeam": "格雷米奥", "league": "巴西杯", "matchTime": "07:00:00" }
+  ],
+  "plans": [
+    {
+      "name": "稳健保底",
+      "type": "主票",
+      "play": "让球胜平负 2串1 复式",
+      "bet": "买「巴萨 让一球 胜」串「安德莱 让一球 胜/平」，33倍",
+      "amount": 132,
+      "returns": "174.60-349.21元",
+      "matches": ["巴萨 vs 毕尔巴鄂", "安德莱 vs 阿拉木图"]
+    },
+    {
+      "name": "价值发现",
+      "type": "加仓",
+      "play": "胜平负 单关",
+      "bet": "买「塞尔塔 胜」，20倍",
+      "amount": 40,
+      "returns": "71.20元",
+      "matches": ["塞尔塔 vs 奥萨苏纳"]
+    },
+    {
+      "name": "高危搏杀",
+      "type": "冷门",
+      "play": "猜比分",
+      "bet": "买「巴西国际 vs 格雷米奥 1:1」，14倍",
+      "amount": 28,
+      "returns": "154.00元",
+      "matches": ["巴西国际 vs 格雷米奥"]
+    }
+  ]
+}

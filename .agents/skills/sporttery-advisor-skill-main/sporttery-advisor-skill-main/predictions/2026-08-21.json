@@ -1,0 +1,46 @@
+{
+  "generatedAt": "2026-08-20T21:54:13+08:00",
+  "apiLastUpdateTime": "2026-08-20 21:54:13",
+  "businessDate": "2026-08-20",
+  "matchDate": "2026-08-21",
+  "budget": 120,
+  "matches": [
+    { "matchNumStr": "周四001", "homeTeam": "迈季宽广", "awayTeam": "利雅新月", "matchTime": "02:00:00" },
+    { "matchNumStr": "周四002", "homeTeam": "巴列卡诺", "awayTeam": "阿拉维斯", "matchTime": "03:00:00" },
+    { "matchNumStr": "周四003", "homeTeam": "科林蒂安", "awayTeam": "罗萨里奥", "matchTime": "08:30:00" },
+    { "matchNumStr": "周四005", "homeTeam": "米亚尔比", "awayTeam": "萨尔茨堡", "matchTime": "00:00:00" },
+    { "matchNumStr": "周四006", "homeTeam": "特拉布宗", "awayTeam": "费伦茨", "matchTime": "01:00:00" },
+    { "matchNumStr": "周四007", "homeTeam": "波兹南", "awayTeam": "图恩", "matchTime": "01:00:00" },
+    { "matchNumStr": "周四008", "homeTeam": "贝红星", "awayTeam": "比尔森", "matchTime": "02:00:00" },
+    { "matchNumStr": "周四009", "homeTeam": "本菲卡", "awayTeam": "奥胡斯", "matchTime": "03:00:00" }
+  ],
+  "plans": [
+    {
+      "name": "稳健保底",
+      "type": "主票",
+      "play": "让球胜平负 2串1",
+      "bet": "买「特拉布宗 让一球 胜+平」串「贝红星 让一球 平+负」，6倍",
+      "amount": 72,
+      "returns": "44.88-132.19元",
+      "matches": ["特拉布宗 vs 费伦茨", "贝红星 vs 比尔森"]
+    },
+    {
+      "name": "价值发现",
+      "type": "加仓",
+      "play": "胜平负 单关",
+      "bet": "买「巴列卡诺 胜+平+负」，4倍",
+      "amount": 24,
+      "returns": "16.56-27.20元",
+      "matches": ["巴列卡诺 vs 阿拉维斯"]
+    },
+    {
+      "name": "高危搏杀",
+      "type": "冷门",
+      "play": "猜比分",
+      "bet": "买「巴列卡诺 vs 阿拉维斯 1:1」，6倍",
+      "amount": 12,
+      "returns": "66.00元",
+      "matches": ["巴列卡诺 vs 阿拉维斯"]
+    }
+  ]
+}
