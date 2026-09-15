@@ -1,51 +1,27 @@
-"""Agent 最终结构化响应契约。"""
+"""（补桥实现）Agent 结构化输出模型。
 
+契约：AgentResponse 需提供 answer（非空）、status（枚举）、error_code；
+并提供 model_dump()（pydantic 默认）。
+"""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class AgentResponse(BaseModel):
-    """Agent 每轮任务结束后的标准结果。
+    """Agent 最终结构化响应。"""
 
-    Schema 只能约束格式（字段存在、类型正确、枚举合法、非空），
-    不能保证业务结论真实。业务正确性需要结合工具轨迹验证。
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
+    status: Literal["success", "error"] = Field(
+        default="success",
+        description="success=正常完成；error=无法完成",
     )
-
-    status: Literal[
-        "success",
-        "partial_success",
-        "needs_clarification",
-        "error",
-    ] = Field(
-        description=(
-            "任务状态：完全完成使用 success；"
-            "只完成部分任务使用 partial_success；"
-            "需要用户补充信息使用 needs_clarification；"
-            "任务执行失败使用 error。"
-        )
-    )
-
     answer: str = Field(
         min_length=1,
-        description="展示给用户的最终中文回答。",
+        description="给用户的最终回答（简体中文，不得编造工具未返回的信息）",
     )
-
-    error_code: str | None = Field(
+    error_code: Optional[str] = Field(
         default=None,
-        description=(
-            "工具明确返回错误代码时填写；"
-            "工具未返回错误代码时必须为 null。"
-        ),
-    )
-
-    needs_human_review: bool = Field(
-        default=False,
-        description="当前结果是否需要人工复核。",
+        description="仅当 status=error 时填写；无明确错误代码时必须为 null",
     )
