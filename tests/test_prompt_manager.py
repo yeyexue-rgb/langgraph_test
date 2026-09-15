@@ -68,7 +68,7 @@ class TestCustomPromptDirectory:
         self,
         tmp_path: Path,
     ) -> None:
-        (tmp_path / "system.md").write_text(
+        (tmp_path / "system.txt").write_text(
             "自定义测试提示词",
             encoding="utf-8",
         )
@@ -94,7 +94,7 @@ class TestCustomPromptDirectory:
         self,
         tmp_path: Path,
     ) -> None:
-        (tmp_path / "system.md").write_text(
+        (tmp_path / "system.txt").write_text(
             "   \n  ",
             encoding="utf-8",
         )
@@ -106,7 +106,7 @@ class TestCustomPromptDirectory:
         self,
         tmp_path: Path,
     ) -> None:
-        (tmp_path / "system.md").write_text(
+        (tmp_path / "system.txt").write_text(
             "\n\n  提示词正文  \n",
             encoding="utf-8",
         )
@@ -128,7 +128,7 @@ class TestPromptDirectoryEnvOverride:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        (tmp_path / "system.md").write_text(
+        (tmp_path / "system.txt").write_text(
             "环境变量版提示词",
             encoding="utf-8",
         )
@@ -147,11 +147,11 @@ class TestPromptDirectoryEnvOverride:
         env_dir.mkdir()
         explicit_dir.mkdir()
 
-        (env_dir / "system.md").write_text(
+        (env_dir / "system.txt").write_text(
             "环境变量版",
             encoding="utf-8",
         )
-        (explicit_dir / "system.md").write_text(
+        (explicit_dir / "system.txt").write_text(
             "显式目录版",
             encoding="utf-8",
         )
