@@ -40,7 +40,10 @@ from langgraph.types import Command
 from agent_core.context import AgentContext
 from agent_core.registry import ToolRegistry
 from agent_core.settings import AgentSettings
-from agent_core.structured_output import AgentResponse
+from agent_core.structured_output import (
+    AgentResponse,
+    agent_response_handle_errors,
+)
 from agent_core.subagents.tracing import (
     SubagentTracer,
     extract_business_traces,
@@ -136,13 +139,7 @@ class AgentService:
                 middleware=self.middleware,
                 response_format=ToolStrategy(
                     schema=AgentResponse,
-                    handle_errors=(
-                        "最终响应不符合规定格式，请重新生成。"
-                        "status 必须使用指定枚举值；"
-                        "answer 不能为空；"
-                        "没有明确错误代码时，error_code 必须为 null；"
-                        "不得编造工具执行结果或错误代码。"
-                    ),
+                    handle_errors=agent_response_handle_errors,
                 ),
             )
 

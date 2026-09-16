@@ -20,7 +20,10 @@ from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 
 from agent_core.prompt_manager import load_prompt
-from agent_core.structured_output import AgentResponse
+from agent_core.structured_output import (
+    AgentResponse,
+    agent_response_handle_errors,
+)
 from agent_core.subagents.file_specialist import create_file_specialist_tool
 from agent_core.subagents.sql_specialist import create_sql_specialist_tool
 from agent_core.subagents.time_specialist import create_time_specialist_tool
@@ -104,12 +107,7 @@ def build_supervisor_agent(
         middleware=list(extra_middleware or []),
         response_format=ToolStrategy(
             schema=AgentResponse,
-            handle_errors=(
-                "最终响应不符合规定格式，请重新生成。"
-                "status 必须使用指定枚举值；answer 不能为空；"
-                "没有明确错误代码时 error_code 必须为 null；"
-                "不得编造子 Agent 的执行结果或错误代码。"
-            ),
+            handle_errors=agent_response_handle_errors,
         ),
     )
 

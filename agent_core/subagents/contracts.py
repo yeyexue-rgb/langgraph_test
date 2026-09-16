@@ -57,8 +57,11 @@ class SubagentResult(BaseModel):
     data: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "领域数据：时间子 Agent 至少包含 resolved_time 与 "
-            "timezone；文件子 Agent 至少包含 count 与 files。"
+            "领域数据对象（必须是键值对，不能是数组）："
+            "时间子 Agent 至少包含 resolved_time 与 timezone；"
+            "文件子 Agent 至少包含 count 与 files；"
+            "SQL 子 Agent 至少包含 query（执行的 SQL）与 "
+            "results（查询结果）。"
         ),
     )
 
@@ -68,6 +71,24 @@ class SubagentResult(BaseModel):
             "工具明确返回错误代码时填写；"
             "未返回错误代码时必须为 null。"
         ),
+    )
+
+
+def subagent_handle_errors(exception: Exception) -> str:
+    """ToolStrategy 的 handle_errors 回调：附上具体校验错误。
+
+    静态文案不包含失败原因，模型无法自我修正，可能反复提交同样的
+    非法结构，最终以纯文本收尾导致 structured_response 缺失、
+    整个子 Agent 被降级为 INVALID_SUBAGENT_RESULT。
+    """
+
+    return (
+        "结果必须符合 SubagentResult 结构，请修正后重新提交："
+        "agent_name 与 status 只能使用指定枚举值；summary 不能为空；"
+        "data 必须是键值对对象，不能是数组；"
+        "没有明确错误代码时 error_code 必须为 null；"
+        "不得编造查询结果或错误代码。"
+        f"具体校验错误：{exception}"
     )
 
 

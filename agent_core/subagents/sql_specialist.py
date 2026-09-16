@@ -23,6 +23,7 @@ from agent_core.hitl import build_hitl_middleware
 from agent_core.subagents.contracts import (
     SubagentResult,
     serialize_subagent_result,
+    subagent_handle_errors,
 )
 from agent_core.subagents.tracing import SubagentTracer
 from agent_core.prompt_manager import load_prompt
@@ -115,12 +116,7 @@ def create_sql_specialist_tool(
         ],
         response_format=ToolStrategy(
             schema=SubagentResult,
-            handle_errors=(
-                "结果必须符合 SubagentResult 结构。"
-                "status 只能使用指定枚举值；summary 不能为空；"
-                "没有明确错误代码时 error_code 必须为 null；"
-                "不得编造查询结果或错误代码。"
-            ),
+            handle_errors=subagent_handle_errors,
         ),
     )
 
@@ -137,28 +133,46 @@ def create_sql_specialist_tool(
         """按自然语言查询测试管理数据库。
 
         容错：模型偶发不调用结构化输出工具（最后一条是空 AI 消息），
-        此时子 Agent 拿不到 SubagentResult。重试一次，避免把"模型抖动"
+        此时子 Agent 拿不到 SubagentResult。最多重试两次；重试时在
+        输入末尾追加引导提示，避免盲目重掷骰子把"模型抖动"
         直接暴露成 INVALID_SUBAGENT_RESULT。
         """
 
         import json
 
-        payload = {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": (
-                        "请回答以下测试管理相关问题："
-                        f"{query}"
-                    ),
-                }
-            ]
-        }
+        user_messages = [
+            {
+                "role": "user",
+                "content": (
+                    "请回答以下测试管理相关问题："
+                    f"{query}"
+                ),
+            }
+        ]
+
+        retry_messages = user_messages + [
+            {
+                "role": "user",
+                "content": (
+                    "注意：上一次运行结束时没有提交符合 "
+                    "SubagentResult 结构的最终结果。请重新完成任务，"
+                    "并在结束前调用 SubagentResult 工具提交结构化结果。"
+                ),
+            }
+        ]
 
         result = ""
 
-        for _ in range(2):
-            state = sql_agent.invoke(payload)
+        for attempt in range(3):
+            state = sql_agent.invoke(
+                {
+                    "messages": (
+                        user_messages
+                        if attempt == 0
+                        else retry_messages
+                    )
+                }
+            )
 
             result = serialize_subagent_result(
                 state,

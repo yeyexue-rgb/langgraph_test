@@ -16,6 +16,7 @@ from langchain.tools import tool
 from agent_core.subagents.contracts import (
     SubagentResult,
     serialize_subagent_result,
+    subagent_handle_errors,
 )
 from agent_core.prompt_manager import load_prompt
 from agent_core.subagents.tracing import SubagentTracer
@@ -39,12 +40,7 @@ def create_time_specialist_tool(
         system_prompt=load_prompt("time_specialist"),
         response_format=ToolStrategy(
             schema=SubagentResult,
-            handle_errors=(
-                "结果必须符合 SubagentResult 结构。"
-                "status 只能使用指定枚举值；summary 不能为空；"
-                "没有明确错误代码时 error_code 必须为 null；"
-                "不得编造时间结果或错误代码。"
-            ),
+            handle_errors=subagent_handle_errors,
         ),
     )
 

@@ -24,6 +24,7 @@ from agent_core.hitl import build_hitl_middleware, outside_personal_space
 from agent_core.subagents.contracts import (
     SubagentResult,
     serialize_subagent_result,
+    subagent_handle_errors,
 )
 from agent_core.subagents.tracing import SubagentTracer
 from agent_core.prompt_manager import load_prompt
@@ -68,12 +69,7 @@ def create_file_specialist_tool(
         ],
         response_format=ToolStrategy(
             schema=SubagentResult,
-            handle_errors=(
-                "结果必须符合 SubagentResult 结构。"
-                "status 只能使用指定枚举值；summary 不能为空；"
-                "没有明确错误代码时 error_code 必须为 null；"
-                "不得编造文件数量、文件列表或错误代码。"
-            ),
+            handle_errors=subagent_handle_errors,
         ),
     )
 
