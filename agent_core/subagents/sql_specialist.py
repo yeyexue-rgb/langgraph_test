@@ -134,27 +134,47 @@ def create_sql_specialist_tool(
         ),
     )
     def call_sql_specialist(query: str) -> str:
-        """按自然语言查询测试管理数据库。"""
+        """按自然语言查询测试管理数据库。
 
-        state = sql_agent.invoke(
-            {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            "请回答以下测试管理相关问题："
-                            f"{query}"
-                        ),
-                    }
-                ]
-            }
-        )
+        容错：模型偶发不调用结构化输出工具（最后一条是空 AI 消息），
+        此时子 Agent 拿不到 SubagentResult。重试一次，避免把"模型抖动"
+        直接暴露成 INVALID_SUBAGENT_RESULT。
+        """
 
-        return serialize_subagent_result(
-            state,
-            expected_agent="sql_specialist",
-            tracer=tracer,
-            business_tool_names=business_tool_names,
-        )
+        import json
+
+        payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "请回答以下测试管理相关问题："
+                        f"{query}"
+                    ),
+                }
+            ]
+        }
+
+        result = ""
+
+        for _ in range(2):
+            state = sql_agent.invoke(payload)
+
+            result = serialize_subagent_result(
+                state,
+                expected_agent="sql_specialist",
+                tracer=tracer,
+                business_tool_names=business_tool_names,
+            )
+
+            try:
+                parsed = json.loads(result)
+            except json.JSONDecodeError:
+                return result
+
+            if parsed.get("error_code") != "INVALID_SUBAGENT_RESULT":
+                return result
+
+        return result
 
     return call_sql_specialist
