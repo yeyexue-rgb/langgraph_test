@@ -17,11 +17,11 @@ description: '测试 Agent 平台 · single vs subagents 双架构评测'
 # 同一套 tests 分别打在两个 provider 上，一次评测输出 A/B 对比报告
 # ---------------------------------------------------------------------------
 providers:
-  - id: 'file://evals/agent_provider.py'
+  - id: 'file://agent_provider.py'  # 相对本配置文件所在目录解析
     label: 'single · 单 Agent 基线'
     config:
       agent_mode: single
-  - id: 'file://evals/agent_provider.py'
+  - id: 'file://agent_provider.py'  # 相对本配置文件所在目录解析
     label: 'subagents · Supervisor 架构'
     config:
       agent_mode: subagents

@@ -1,4 +1,4 @@
-"""（补桥实现）提示词加载器：从 prompts/ 目录读取，缺失时回退默认值。
+"""提示词加载器：从 prompts/ 目录读取 .md（兼容 .txt），缺失时回退默认值。
 
 说明：上游仓库未包含本模块，此处为黑盒评测环境提供最小实现，
 行为契约：load_prompt(name) -> str。
@@ -17,10 +17,11 @@ _DEFAULTS = {
 
 
 def load_prompt(name: str, default: str | None = None) -> str:
-    """按名称加载提示词（prompts/<name>.txt）。"""
-    path = _PROMPT_DIR / f"{name}.txt"
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
+    """按名称加载提示词：优先 prompts/<name>.md，兼容 <name>.txt。"""
+    for suffix in (".md", ".txt"):
+        path = _PROMPT_DIR / f"{name}{suffix}"
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
     if default is not None:
         return default
     return _DEFAULTS.get(name, "")

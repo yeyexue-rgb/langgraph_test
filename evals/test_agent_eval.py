@@ -45,7 +45,7 @@ if not load_agent_settings().api_key:
 try:
     from deepeval import assert_test
     from deepeval.metrics import TaskCompletionMetric, ToolCorrectnessMetric
-    from deepeval.test_case import LLMTestCase
+    from deepeval.test_case import LLMTestCase, ToolCall
 
     from evals.judge_model import DashScopeJudgeModel
 except ImportError:
@@ -76,14 +76,14 @@ def test_sql_p0_case_count() -> None:
     case = LLMTestCase(
         input=query,
         actual_output=result["answer"],
-        expected_tools=["sql_db_query"],
-        tools_called=result["tools_used"],
+        expected_tools=[ToolCall(name="sql_db_query")],
+        tools_called=[ToolCall(name=t) for t in result["tools_used"]],
     )
 
     assert_test(
         case,
         [
-            ToolCorrectnessMetric(threshold=0.7),
+            ToolCorrectnessMetric(threshold=0.7, model=JUDGE),
             TaskCompletionMetric(threshold=0.7, model=JUDGE),
         ],
     )
@@ -101,19 +101,24 @@ def test_relative_time_parse() -> None:
     # 手搓断言保留（便宜先行）：关键事实 + 工具路由
     assert result["status"] == "success"
     assert "15:00" in result["answer"]
-    assert result["tools_used"] == ["parse_natural_datetime"]
+    # 架构无关断言：single 模式为 ["parse_natural_datetime"]；
+    # subagents 模式为 ["time_specialist", "parse_natural_datetime"]
+    # （Supervisor 包装工具 + 子 Agent 内部业务工具），用 in 而非 ==。
+    assert "parse_natural_datetime" in result["tools_used"]
+    if AGENT_MODE == "single":
+        assert result["tools_used"] == ["parse_natural_datetime"]
 
     case = LLMTestCase(
         input=query,
         actual_output=result["answer"],
-        expected_tools=["parse_natural_datetime"],
-        tools_called=result["tools_used"],
+        expected_tools=[ToolCall(name="parse_natural_datetime")],
+        tools_called=[ToolCall(name=t) for t in result["tools_used"]],
     )
 
     assert_test(
         case,
         [
-            ToolCorrectnessMetric(threshold=0.7),
+            ToolCorrectnessMetric(threshold=0.7, model=JUDGE),
             TaskCompletionMetric(threshold=0.7, model=JUDGE),
         ],
     )

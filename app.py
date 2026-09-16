@@ -700,7 +700,7 @@ if service is not None:
             else:
                 st.error("本轮任务执行失败")
 
-            if structured["needs_human_review"]:
+            if structured.get("needs_human_review", False):
                 st.warning("当前结果需要人工复核")
 
             error_code = structured.get("error_code")
