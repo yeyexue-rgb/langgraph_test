@@ -1,0 +1,673 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..3c8bac8
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,17 @@
++# ---------- 模型（必填）----------
++DASHSCOPE_API_KEY="sk-你的key"
++DASHSCOPE_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
++MODEL_NAME="qwen3.8-max"
++
++# ---------- 架构开关 ----------
++AGENT_MODE=single            # single | subagents
++
++# ---------- Langfuse 轨迹追踪（可选，不配则自动关闭）----------
++LANGFUSE_PUBLIC_KEY=""
++LANGFUSE_SECRET_KEY=""
++LANGFUSE_HOST="https://cloud.langfuse.com"
++LANGFUSE_ENABLED=            # 留空=配了 key 就开；也可显式写 1/0
++LANGFUSE_SAMPLE_RATE=1.0     # 采样比例，压成本时调小
++LANGFUSE_MASK=1              # 敏感信息脱敏（默认开）
++LANGFUSE_ENVIRONMENT=local
++LANGFUSE_RELEASE=
+diff --git a/agent_core/agent_service.py b/agent_core/agent_service.py
+index 681f87a..9148571 100644
+--- a/agent_core/agent_service.py
++++ b/agent_core/agent_service.py
+@@ -38,6 +38,12 @@ from langgraph.checkpoint.memory import InMemorySaver
+ from langgraph.types import Command
+ 
+ from agent_core.context import AgentContext
++from agent_core.observability import (
++    build_langfuse_handler,
++    should_trace,
++    trace_config,
++)
++from agent_core.observability import flush as flush_langfuse
+ from agent_core.registry import ToolRegistry
+ from agent_core.settings import AgentSettings
+ from agent_core.structured_output import (
+@@ -143,6 +149,51 @@ class AgentService:
+                 ),
+             )
+ 
++        # 可观测性（Langfuse）：未配置 LANGFUSE_* 时返回 None，
++        # 后续 _attach_tracing 原样返回运行配置，行为与基线完全一致。
++        self.langfuse_handler = build_langfuse_handler()
++
++    def _attach_tracing(
++        self,
++        config: dict[str, Any],
++        *,
++        thread_id: str,
++        context: AgentContext | None = None,
++    ) -> dict[str, Any]:
++        """按需把 Langfuse 回调与元数据合并进运行配置。
++
++        - 未启用追踪 / 未命中采样 → 原样返回，零开销；
++        - 已启用 → 追加 callbacks，并把 thread_id / user_id / tenant_id
++          映射成 Langfuse 的 session / user / tags，便于按会话回放链路。
++        """
++
++        if self.langfuse_handler is None or not should_trace():
++            return config
++
++        tracing = trace_config(
++            thread_id=thread_id,
++            user_id=getattr(context, "user_id", None),
++            tenant_id=getattr(context, "tenant_id", None),
++            agent_mode=self.agent_mode,
++        )
++
++        if not tracing:
++            return config
++
++        merged = dict(config)
++        merged["callbacks"] = list(config.get("callbacks", [])) + list(
++            tracing.pop("callbacks")
++        )
++        merged.update(tracing)
++
++        return merged
++
++    def flush_tracing(self) -> None:
++        """把缓冲的追踪数据推到 Langfuse（脚本/任务结束时调用）。"""
++
++        if self.langfuse_handler is not None:
++            flush_langfuse()
++
+     @staticmethod
+     def _build_config(thread_id: str) -> dict[str, Any]:
+         """构造 LangGraph 运行配置，校验 thread_id。"""
+@@ -179,7 +230,11 @@ class AgentService:
+         if not normalized_input:
+             raise ValueError("user_input 不能为空")
+ 
+-        config = self._build_config(thread_id)
++        config = self._attach_tracing(
++            self._build_config(thread_id),
++            thread_id=thread_id,
++            context=context,
++        )
+ 
+         invoke_kwargs: dict[str, Any] = {"config": config}
+ 
+@@ -247,7 +302,11 @@ class AgentService:
+             for decision in decisions
+         ]
+ 
+-        config = self._build_config(thread_id)
++        config = self._attach_tracing(
++            self._build_config(thread_id),
++            thread_id=thread_id,
++            context=context,
++        )
+ 
+         invoke_kwargs: dict[str, Any] = {"config": config}
+ 
+diff --git a/agent_core/observability.py b/agent_core/observability.py
+new file mode 100644
+index 0000000..f6b4333
+--- /dev/null
++++ b/agent_core/observability.py
+@@ -0,0 +1,256 @@
++"""Langfuse 轨迹追踪接入（Agent 可观测性）。
++
++定位：**评测（DeepEval）判质量，追踪（Langfuse）看过程**。
++评测回答"这次过没过"，追踪回答"过程里到底发生了什么、慢在哪、错在哪一步"。
++
++设计原则（三条，都是为了不破坏既有回归基线）：
++1. **可选、零侵入**：未配置 LANGFUSE_* 时自动降级为 no-op，
++   `build_langfuse_handler()` 返回 None，运行配置原样返回，
++   Agent 行为与不加追踪时**完全一致**；
++2. **可开关、可采样**：`LANGFUSE_ENABLED` 显式开关；
++   `LANGFUSE_SAMPLE_RATE` 支持按比例采样（控制成本与数据量）；
++3. **默认脱敏**：`LANGFUSE_MASK=1`（默认开）对 API Key、
++   绝对路径等敏感形态做递归掩码，避免把密钥写进追踪平台。
++
++环境变量：
++    LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY   必填（缺一即视为未启用）
++    LANGFUSE_HOST            默认官方云，自托管时指向自己的地址
++    LANGFUSE_ENABLED         1/0，显式开关（默认：配了 key 即启用）
++    LANGFUSE_SAMPLE_RATE     0~1，采样比例（默认 1.0 全量）
++    LANGFUSE_MASK            1/0，脱敏开关（默认 1）
++    LANGFUSE_ENVIRONMENT     环境名（如 local / staging / prod）
++    LANGFUSE_RELEASE         版本号（如 git sha），便于按版本对比
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++import random
++import re
++from typing import Any
++
++logger = logging.getLogger(__name__)
++
++__all__ = [
++    "langfuse_enabled",
++    "sample_rate",
++    "should_trace",
++    "build_langfuse_handler",
++    "trace_config",
++    "flush",
++    "reset",
++]
++
++_client: Any = None
++_handler: Any = None
++_warned = False
++
++# ---------------------------------------------------------------- 环境变量
++
++
++def _env(name: str, default: str = "") -> str:
++    return (os.getenv(name) or default).strip()
++
++
++def _flag(name: str, default: bool = False) -> bool:
++    raw = _env(name).lower()
++
++    if raw in ("1", "true", "yes", "on"):
++        return True
++    if raw in ("0", "false", "no", "off"):
++        return False
++
++    return default
++
++
++def langfuse_enabled() -> bool:
++    """是否启用 Langfuse 追踪：显式开关优先，其次看是否配了密钥。"""
++
++    has_keys = bool(_env("LANGFUSE_PUBLIC_KEY") and _env("LANGFUSE_SECRET_KEY"))
++    explicit = _env("LANGFUSE_ENABLED")
++
++    if explicit:
++        return _flag("LANGFUSE_ENABLED") and has_keys
++
++    return has_keys
++
++
++def sample_rate() -> float:
++    """采样比例（0~1），用于控制追踪数据量与平台成本。"""
++
++    try:
++        return max(0.0, min(1.0, float(_env("LANGFUSE_SAMPLE_RATE", "1.0"))))
++    except ValueError:
++        return 1.0
++
++
++def should_trace() -> bool:
++    """本次调用是否要追踪（未启用或未命中采样时为 False）。"""
++
++    if not langfuse_enabled():
++        return False
++
++    rate = sample_rate()
++
++    return True if rate >= 1.0 else random.random() < rate
++
++
++# ---------------------------------------------------------------- 脱敏
++
++_SECRET_PATTERNS = (
++    re.compile(r"sk-[A-Za-z0-9_\-]{6,}"),                      # OpenAI/百炼风格 key
++    re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*[=:]\s*\S+"),
++)
++_PATH_PATTERNS = (
++    re.compile(r"[A-Za-z]:\\[^\s\"']+"),                        # Windows 绝对路径
++    re.compile(r"/(?:home|Users|root|tmp)/[^\s\"']+"),          # Unix 绝对路径
++)
++
++
++def _mask_text(text: str) -> str:
++    for pattern in _SECRET_PATTERNS:
++        text = pattern.sub("[REDACTED]", text)
++    for pattern in _PATH_PATTERNS:
++        text = pattern.sub("[PATH]", text)
++
++    return text
++
++
++def _mask(data: Any) -> Any:
++    """递归脱敏：字符串按规则替换，容器逐层下钻。"""
++
++    if _env("LANGFUSE_MASK", "1").lower() in ("0", "false", "no", "off"):
++        return data
++
++    if isinstance(data, str):
++        return _mask_text(data)
++    if isinstance(data, dict):
++        return {k: _mask(v) for k, v in data.items()}
++    if isinstance(data, (list, tuple)):
++        return [_mask(v) for v in data]
++
++    return data
++
++
++# ---------------------------------------------------------------- 客户端与回调
++
++
++def _init_client() -> Any:
++    """初始化（并缓存）Langfuse 客户端；失败时返回 None 并只告警一次。"""
++
++    global _client, _warned
++
++    if _client is not None:
++        return _client
++
++    try:
++        from langfuse import Langfuse
++
++        _client = Langfuse(
++            public_key=_env("LANGFUSE_PUBLIC_KEY"),
++            secret_key=_env("LANGFUSE_SECRET_KEY"),
++            host=_env("LANGFUSE_HOST") or None,
++            environment=_env("LANGFUSE_ENVIRONMENT") or None,
++            release=_env("LANGFUSE_RELEASE") or None,
++            mask=_mask,
++        )
++
++        return _client
++    except Exception as exc:  # noqa: BLE001 —— 追踪失败绝不能影响业务
++        if not _warned:
++            logger.warning("Langfuse 初始化失败，已降级为不追踪：%s", exc)
++            _warned = True
++
++        return None
++
++
++def build_langfuse_handler() -> Any | None:
++    """构造 LangChain 回调处理器；未启用/初始化失败时返回 None。"""
++
++    global _handler, _warned
++
++    if not langfuse_enabled():
++        return None
++
++    if _handler is not None:
++        return _handler
++
++    _init_client()
++
++    try:
++        from langfuse.langchain import CallbackHandler
++
++        _handler = CallbackHandler()
++
++        return _handler
++    except Exception as exc:  # noqa: BLE001
++        if not _warned:
++            logger.warning("Langfuse 回调处理器创建失败，已降级：%s", exc)
++            _warned = True
++
++        return None
++
++
++def trace_config(
++    *,
++    thread_id: str,
++    user_id: str | None = None,
++    tenant_id: str | None = None,
++    agent_mode: str | None = None,
++    extra_tags: list[str] | None = None,
++) -> dict[str, Any]:
++    """构造要合并进 LangGraph 运行配置的追踪字段。
++
++    - callbacks：Langfuse 回调处理器；
++    - metadata：把会话/用户/租户映射成 Langfuse 的 session / user / tags，
++      这样在平台里能按"一次会话"回放完整链路；
++    - run_name / tags：便于筛选与聚合。
++    """
++
++    handler = build_langfuse_handler()
++
++    if handler is None:
++        return {}
++
++    tags = ["agent", f"mode:{agent_mode or 'unknown'}"]
++    if tenant_id:
++        tags.append(f"tenant:{tenant_id}")
++    if extra_tags:
++        tags.extend(extra_tags)
++
++    return {
++        "callbacks": [handler],
++        "run_name": f"agent-{agent_mode or 'unknown'}",
++        "tags": tags,
++        "metadata": {
++            "langfuse_session_id": thread_id,
++            "langfuse_user_id": user_id or "anonymous",
++            "langfuse_tags": tags,
++            "agent_mode": agent_mode,
++            "tenant_id": tenant_id,
++        },
++    }
++
++
++def flush() -> None:
++    """把缓冲区里的追踪数据推到 Langfuse。
++
++    进程即将退出（脚本、定时任务、测试收尾）时调用；
++    Web 常驻服务不需要每次调用都 flush。
++    """
++
++    if _client is None:
++        return
++
++    try:
++        _client.flush()
++    except Exception as exc:  # noqa: BLE001
++        logger.warning("Langfuse flush 失败：%s", exc)
++
++
++def reset() -> None:
++    """清空缓存的客户端/处理器（测试用）。"""
++
++    global _client, _handler, _warned
++    _client, _handler, _warned = None, None, False
+diff --git a/agent_core/prompt_manager.py b/agent_core/prompt_manager.py
+index 3cb37fd..9165f37 100644
+--- a/agent_core/prompt_manager.py
++++ b/agent_core/prompt_manager.py
+@@ -1,27 +1,102 @@
+-"""提示词加载器：从 prompts/ 目录读取 .md（兼容 .txt），缺失时回退默认值。
++"""提示词加载器：从 prompts/ 目录读取场景提示词。
+ 
+-说明：上游仓库未包含本模块，此处为黑盒评测环境提供最小实现，
+-行为契约：load_prompt(name) -> str。
++设计要点（都是踩过坑总结的）：
++1. **目录优先级**：显式传参 > `AGENT_PROMPT_DIR` 环境变量 > 项目默认目录，
++   方便切换提示词版本做对照实验；
++2. **后缀兼容**：优先 `.md`，兼容 `.txt`——历史上提示词一直是 `.txt`，
++   后来允许用 `.md` 写富文本，两种都要能读；
++3. **场景白名单**：只允许 `PROMPT_NAMES` 里的场景，
++   拼错名字立刻报错，避免"静默拿到空提示词、评测结论全错"这种最坑的故障；
++4. **空文件报错**：文件存在但内容为空同样视为错误，不返回空串。
++
++对外 API：
++    load_prompt(name, default=None) -> str
++    PromptManager(directory=None).get(name) -> str
++    PromptNotFoundError / PROMPT_NAMES / PROJECT_PROMPT_DIR
+ """
++
+ from __future__ import annotations
+ 
+ import os
+ from pathlib import Path
+ 
+-_REPO_ROOT = Path(__file__).resolve().parent.parent
+-_PROMPT_DIR = Path(os.getenv("AGENT_PROMPT_DIR", str(_REPO_ROOT / "prompts")))
++#: 项目自带提示词目录（默认目录）
++PROJECT_PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
++
++#: 允许加载的场景白名单
++PROMPT_NAMES = (
++    "system",
++    "supervisor",
++    "time_specialist",
++    "file_specialist",
++    "sql_specialist",
++)
+ 
++#: 文件后缀查找顺序
++PROMPT_SUFFIXES = (".md", ".txt")
++
++#: 兜底默认值（仅在文件缺失且未显式传 default 时使用）
+ _DEFAULTS = {
+     "system": "你是一个乐于助人的智能体助手，请用简体中文简洁准确地回答。",
+ }
+ 
+ 
++class PromptNotFoundError(Exception):
++    """提示词文件缺失，或文件内容为空。"""
++
++
++class PromptManager:
++    """按场景加载提示词。
++
++    directory 为空时依次取 AGENT_PROMPT_DIR 环境变量、项目默认目录；
++    显式传入的 directory 优先级最高（测试注入隔离目录时用）。
++    """
++
++    def __init__(self, directory: str | Path | None = None) -> None:
++        if directory is not None:
++            self.directory = Path(directory)
++        else:
++            env_dir = (os.getenv("AGENT_PROMPT_DIR") or "").strip()
++            self.directory = Path(env_dir) if env_dir else PROJECT_PROMPT_DIR
++
++    def get(self, name: str) -> str:
++        """加载指定场景提示词（已 strip）。"""
++
++        if name not in PROMPT_NAMES:
++            raise ValueError(
++                f"未知提示词场景：{name!r}，可选值：{list(PROMPT_NAMES)}"
++            )
++
++        for suffix in PROMPT_SUFFIXES:
++            path = self.directory / f"{name}{suffix}"
++
++            if not path.exists():
++                continue
++
++            content = path.read_text(encoding="utf-8").strip()
++
++            if not content:
++                raise PromptNotFoundError(f"提示词文件内容为空：{path}")
++
++            return content
++
++        suffixes = "/".join(PROMPT_SUFFIXES)
++        raise PromptNotFoundError(
++            f"未找到提示词文件：{self.directory}/{name}（尝试后缀 {suffixes}）"
++        )
++
++
+ def load_prompt(name: str, default: str | None = None) -> str:
+-    """按名称加载提示词：优先 prompts/<name>.md，兼容 <name>.txt。"""
+-    for suffix in (".md", ".txt"):
+-        path = _PROMPT_DIR / f"{name}{suffix}"
+-        if path.exists():
+-            return path.read_text(encoding="utf-8").strip()
+-    if default is not None:
+-        return default
+-    return _DEFAULTS.get(name, "")
++    """便捷加载：等价于 PromptManager().get(name)，缺失时可回退默认值。
++
++    - 文件缺失：有 default 用 default，否则用内置兜底（可能为空串）；
++    - 场景名非法：仍然抛 ValueError（拼错名字必须立刻暴露）。
++    """
++
++    try:
++        return PromptManager().get(name)
++    except PromptNotFoundError:
++        if default is not None:
++            return default
++
++        return _DEFAULTS.get(name, "")
+diff --git a/agent_core/subagents/tracing.py b/agent_core/subagents/tracing.py
+index 70add83..6703ed4 100644
+--- a/agent_core/subagents/tracing.py
++++ b/agent_core/subagents/tracing.py
+@@ -7,8 +7,13 @@
+    供 AgentService._merge_subagent_traces 合并进最终结果。
+ 
+ 轨迹结构（英文键，与既有测试对齐）：
++- {"type": "user_input",  "role", "content"}      ← 前置：本轮用户输入
+ - {"type": "tool_call",   "name", "args", "id"}
+ - {"type": "tool_result", "name", "content", "id"}
++
++为什么保留 user_input 这一条：轨迹要能"完整回放一轮对话"——
++在页面「调用轨迹」视图和 Langfuse 里，先看到用户问了什么，
++再看调了什么工具、拿到什么结果，判断才不是断头案。
+ """
+ from __future__ import annotations
+ 
+@@ -30,6 +35,21 @@ def extract_business_traces(
+     name_by_id: dict[str, str] = {}
+ 
+     for message in messages:
++        # 前置：把用户输入也记为一条轨迹（便于完整回放一轮对话）。
++        if message.__class__.__name__ == "HumanMessage":
++            content = getattr(message, "content", "")
++
++            if content:
++                traces.append(
++                    {
++                        "type": "user_input",
++                        "role": "user",
++                        "content": content,
++                    }
++                )
++
++            continue
++
+         for tool_call in (getattr(message, "tool_calls", None) or []):
+             name = tool_call.get("name")
+             call_id = tool_call.get("id")
+@@ -92,8 +112,16 @@ class SubagentTracer:
+     ) -> None:
+         """从子 Agent 的 invoke 状态中提取轨迹并暂存。"""
+ 
+-        messages = state.get("messages", []) if isinstance(state, dict) else getattr(state, "messages", [])
+-        traces, tools_used = extract_business_traces(list(messages or []), business_tool_names)
++        # 非法状态（None / 非映射）直接忽略：宁可少记一条轨迹，
++        # 也不要往轨迹里塞空条目污染结果。
++        if not isinstance(state, dict):
++            return
++
++        messages = state.get("messages") or []
++        traces, tools_used = extract_business_traces(
++            list(messages),
++            business_tool_names,
++        )
+ 
+         with self._lock:
+             self._entries.append(
+diff --git a/providers/sql_provider.py b/providers/sql_provider.py
+index b712ff3..36b3a99 100644
+--- a/providers/sql_provider.py
++++ b/providers/sql_provider.py
+@@ -195,7 +195,12 @@ class SQLAgentService:
+         query: str,
+         top_k: int = DEFAULT_TOP_K,
+     ) -> str:
+-        _validate_readonly(query)
++        try:
++            _validate_readonly(query)
++        except ValueError as exc:
++            # 服务层不抛异常：把拒绝原因作为结果返回，
++            # 便于工具层 / Agent 把"被拒绝"如实转述给用户。
++            return str(exc)
+ 
+         safe_query = _ensure_limit(query, top_k)
+ 
+diff --git a/requirements-observability.txt b/requirements-observability.txt
+new file mode 100644
+index 0000000..dd084c7
+--- /dev/null
++++ b/requirements-observability.txt
+@@ -0,0 +1,2 @@
++# 可观测性（轨迹追踪）依赖 —— 可选，不影响主流程
++langfuse>=4.0.0
+diff --git a/scripts/langfuse_smoke.py b/scripts/langfuse_smoke.py
+new file mode 100644
+index 0000000..0998fc9
+--- /dev/null
++++ b/scripts/langfuse_smoke.py
+@@ -0,0 +1,82 @@
++#!/usr/bin/env python3
++# -*- coding: utf-8 -*-
++"""Langfuse 接入冒烟脚本：跑一轮真实对话，把轨迹推到 Langfuse。
++
++用法（项目根目录，先激活虚拟环境）：
++
++    # 1) 只在本地跑通、不追踪（未配 LANGFUSE_* 时自动是这个状态）
++    python scripts/langfuse_smoke.py
++
++    # 2) 追踪到 Langfuse 云 / 自托管
++    export LANGFUSE_PUBLIC_KEY=pk-lf-...
++    export LANGFUSE_SECRET_KEY=sk-lf-...
++    export LANGFUSE_HOST=https://cloud.langfuse.com     # 自托管改成自己的地址
++    python scripts/langfuse_smoke.py "当前一共有多少条 P0 优先级的测试用例？"
++
++脚本会打印：追踪开关状态、本轮回答、工具轨迹、耗时，
++并在结束时 flush，确保数据真正落到平台。
++"""
++
++from __future__ import annotations
++
++import os
++import sys
++import time
++from pathlib import Path
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
++from dotenv import load_dotenv  # noqa: E402
++
++load_dotenv(PROJECT_ROOT / ".env")
++
++from agent_core.observability import (  # noqa: E402
++    build_langfuse_handler,
++    flush,
++    langfuse_enabled,
++    sample_rate,
++)
++from evals.agent_provider import invoke_agent  # noqa: E402
++
++
++DEFAULT_QUERY = "当前一共有多少条 P0 优先级的测试用例？"
++
++
++def main() -> None:
++    query = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_QUERY
++    agent_mode = os.getenv("AGENT_MODE", "single").strip() or "single"
++
++    enabled = langfuse_enabled()
++    handler = build_langfuse_handler()
++
++    print("=" * 62)
++    print(f"追踪开关     : {'开' if enabled else '关（未配置 LANGFUSE_*，零影响）'}")
++    print(f"采样比例     : {sample_rate()}")
++    print(f"回调处理器   : {'就绪' if handler is not None else '未创建（no-op）'}")
++    print(f"被测架构     : {agent_mode}")
++    print("=" * 62)
++
++    started = time.time()
++    result = invoke_agent(query, agent_mode=agent_mode)
++    elapsed = (time.time() - started) * 1000
++
++    print(f"问题         : {query}")
++    print(f"状态         : {result.get('status')}")
++    print(f"回答         : {str(result.get('answer'))[:120]}")
++    print(f"工具轨迹     : {result.get('tools_used')}")
++    print(f"本轮耗时     : {elapsed:.0f} ms")
++
++    flush()
++
++    if enabled:
++        host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
++        print(f"\n已 flush。到 {host} 查看 Trace（按 session 检索本轮 thread_id）。")
++    else:
++        print("\n未启用追踪：配置 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY 后重跑。")
++
++
++if __name__ == "__main__":
++    main()
