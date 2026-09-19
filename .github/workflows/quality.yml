@@ -1,0 +1,83 @@
+name: quality-gate
+
+# 三层质量门禁：提交即验（零成本）→ 夜间全量评测 → 门禁判定
+on:
+  pull_request:
+  schedule:
+    - cron: '0 18 * * *'   # 每天 02:00（北京时间）跑全量评测
+  workflow_dispatch:
+
+jobs:
+  # ---------------------------------------------------------------- 第一层
+  # 规则层：不调模型、零成本、秒级返回 —— 每个 PR 都跑
+  rules:
+    name: 规则层（零成本）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-observability.txt
+
+      - name: 单元测试 + 规则断言（不调模型）
+        run: pytest tests -q -m "not integration"
+
+  # ---------------------------------------------------------------- 第二层
+  # 指标层：调真实模型 + LLM 裁判，有成本 —— 夜间 / 手动触发
+  evals:
+    name: 指标层（夜间全量）
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-observability.txt
+          pip install -U deepeval
+
+      - name: 准备 ground truth 种子数据
+        run: python scripts/seed_test_db.py
+
+      - name: 跑评测（single + subagents 双架构）
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST: ${{ vars.LANGFUSE_HOST }}
+          LANGFUSE_ENVIRONMENT: ci
+          LANGFUSE_RELEASE: ${{ github.sha }}
+        run: |
+          pytest evals/test_agent_eval.py -m integration -q
+          EVAL_AGENT_MODE=subagents pytest evals/test_agent_eval.py -m integration -q
+
+      # ------------------------------------------------------------ 第三层
+      # 门禁判定：把留档变成"能不能放行"，低于阈值直接红
+      - name: 质量门禁判定
+        run: |
+          python scripts/quality_gate.py reports/eval-*.json \
+            --min-metrics-pass-rate 0.95 \
+            --min-avg-score 0.80 \
+            --summary qa-summary.md
+
+      - name: 把摘要写进 Actions 概览
+        if: always()
+        run: cat qa-summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: 上传评测留档
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports
+          path: reports/

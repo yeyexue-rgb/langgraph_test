@@ -1,0 +1,299 @@
+diff --git a/.github/workflows/quality.yml b/.github/workflows/quality.yml
+new file mode 100644
+index 0000000..445a8ca
+--- /dev/null
++++ b/.github/workflows/quality.yml
+@@ -0,0 +1,83 @@
++name: quality-gate
++
++# 三层质量门禁：提交即验（零成本）→ 夜间全量评测 → 门禁判定
++on:
++  pull_request:
++  schedule:
++    - cron: '0 18 * * *'   # 每天 02:00（北京时间）跑全量评测
++  workflow_dispatch:
++
++jobs:
++  # ---------------------------------------------------------------- 第一层
++  # 规则层：不调模型、零成本、秒级返回 —— 每个 PR 都跑
++  rules:
++    name: 规则层（零成本）
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.12'
++
++      - name: 安装依赖
++        run: |
++          pip install -r requirements.txt
++          pip install -r requirements-observability.txt
++
++      - name: 单元测试 + 规则断言（不调模型）
++        run: pytest tests -q -m "not integration"
++
++  # ---------------------------------------------------------------- 第二层
++  # 指标层：调真实模型 + LLM 裁判，有成本 —— 夜间 / 手动触发
++  evals:
++    name: 指标层（夜间全量）
++    if: github.event_name != 'pull_request'
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.12'
++
++      - name: 安装依赖
++        run: |
++          pip install -r requirements.txt
++          pip install -r requirements-observability.txt
++          pip install -U deepeval
++
++      - name: 准备 ground truth 种子数据
++        run: python scripts/seed_test_db.py
++
++      - name: 跑评测（single + subagents 双架构）
++        env:
++          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
++          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
++          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
++          LANGFUSE_HOST: ${{ vars.LANGFUSE_HOST }}
++          LANGFUSE_ENVIRONMENT: ci
++          LANGFUSE_RELEASE: ${{ github.sha }}
++        run: |
++          pytest evals/test_agent_eval.py -m integration -q
++          EVAL_AGENT_MODE=subagents pytest evals/test_agent_eval.py -m integration -q
++
++      # ------------------------------------------------------------ 第三层
++      # 门禁判定：把留档变成"能不能放行"，低于阈值直接红
++      - name: 质量门禁判定
++        run: |
++          python scripts/quality_gate.py reports/eval-*.json \
++            --min-metrics-pass-rate 0.95 \
++            --min-avg-score 0.80 \
++            --summary qa-summary.md
++
++      - name: 把摘要写进 Actions 概览
++        if: always()
++        run: cat qa-summary.md >> $GITHUB_STEP_SUMMARY
++
++      - name: 上传评测留档
++        if: always()
++        uses: actions/upload-artifact@v4
++        with:
++          name: eval-reports
++          path: reports/
+diff --git a/scripts/quality_gate.py b/scripts/quality_gate.py
+new file mode 100644
+index 0000000..e233ff7
+--- /dev/null
++++ b/scripts/quality_gate.py
+@@ -0,0 +1,204 @@
++#!/usr/bin/env python3
++# -*- coding: utf-8 -*-
++"""质量门禁：读评测留档 JSON，按阈值判定"能不能放行"。
++
++为什么需要它：
++`evals/eval_report.py` 已经能把分数与裁判理由留档成 JSON，但"留档"不等于"门禁"——
++没有门禁，评测就是一份没人看的报告：红了照发、分数掉了没人知道。
++
++本脚本把留档变成**可判定的放行条件**，用在 CI 里：
++
++    python scripts/quality_gate.py reports/eval-single-*.json \
++        --min-metrics-pass-rate 0.95 \
++        --min-avg-score 0.80 \
++        --baseline reports/eval-single-昨天.json \
++        --max-avg-drop 0.05 \
++        --summary qa-summary.md
++
++判定规则（任一不满足 → 退出码 1）：
++1. 指标通过率 ≥ --min-metrics-pass-rate
++2. 平均分 ≥ --min-avg-score
++3. 相比 baseline，平均分下降 ≤ --max-avg-drop（**分数退化也会拦**）
++4. 不通过用例数 ≤ --max-failed-cases（默认 0）
++
++输出：终端表格 + 可选 Markdown 摘要（供 CI 评论 / GitHub Step Summary）。
++"""
++
++from __future__ import annotations
++
++import argparse
++import glob
++import json
++import sys
++from pathlib import Path
++from typing import Any
++
++
++def load_reports(patterns: list[str]) -> list[dict[str, Any]]:
++    """按通配符加载留档（同一轮可能多份，如 single + subagents）。"""
++
++    paths: list[Path] = []
++
++    for pattern in patterns:
++        matched = sorted(glob.glob(pattern))
++
++        if not matched and Path(pattern).exists():
++            matched = [pattern]
++
++        paths.extend(Path(p) for p in matched)
++
++    if not paths:
++        raise SystemExit(f"未找到任何留档文件：{patterns}")
++
++    reports = []
++
++    for path in paths:
++        data = json.loads(path.read_text(encoding="utf-8"))
++        data["_path"] = str(path)
++        reports.append(data)
++
++    return reports
++
++
++def summarize(report: dict[str, Any]) -> dict[str, Any]:
++    """把一份留档压成判定需要的指标。"""
++
++    records = report.get("records", [])
++    rows = [row for entry in records for row in entry.get("metrics", [])]
++    failed_cases = [
++        entry["case"]
++        for entry in records
++        if entry.get("metrics") and any(not row.get("success") for row in entry["metrics"])
++    ]
++    scores = [float(row["score"]) for row in rows if row.get("score") is not None]
++    lowest = min(rows, key=lambda r: (r.get("score") if r.get("score") is not None else 9e9), default=None)
++
++    return {
++        "path": report.get("_path", "-"),
++        "mode": report.get("agent_mode", "unknown"),
++        "generated_at": report.get("generated_at", "-"),
++        "cases": len(records),
++        "metrics_total": len(rows),
++        "metrics_passed": sum(1 for row in rows if row.get("success")),
++        "metrics_pass_rate": (sum(1 for row in rows if row.get("success")) / len(rows)) if rows else 1.0,
++        "avg_score": (sum(scores) / len(scores)) if scores else None,
++        "failed_cases": failed_cases,
++        "lowest": lowest,
++    }
++
++
++def judge(
++    summary: dict[str, Any],
++    *,
++    min_metrics_pass_rate: float,
++    min_avg_score: float,
++    max_failed_cases: int,
++    baseline: dict[str, Any] | None,
++    max_avg_drop: float,
++) -> list[str]:
++    """返回失败原因列表（空列表 = 放行）。"""
++
++    problems: list[str] = []
++
++    if summary["metrics_pass_rate"] < min_metrics_pass_rate:
++        problems.append(
++            f"指标通过率 {summary['metrics_pass_rate']:.1%} < 要求 {min_metrics_pass_rate:.1%}"
++        )
++
++    if summary["avg_score"] is not None and summary["avg_score"] < min_avg_score:
++        problems.append(f"平均分 {summary['avg_score']:.3f} < 要求 {min_avg_score:.3f}")
++
++    if len(summary["failed_cases"]) > max_failed_cases:
++        problems.append(
++            f"不通过用例 {len(summary['failed_cases'])} 条 > 允许 {max_failed_cases} 条："
++            + "、".join(summary["failed_cases"])
++        )
++
++    if baseline and summary["avg_score"] is not None and baseline["avg_score"] is not None:
++        drop = baseline["avg_score"] - summary["avg_score"]
++
++        if drop > max_avg_drop:
++            problems.append(
++                f"平均分较基线下降 {drop:.3f} > 允许 {max_avg_drop:.3f}"
++                f"（基线 {baseline['avg_score']:.3f} → 本次 {summary['avg_score']:.3f}）"
++            )
++
++    return problems
++
++
++def render(summaries: list[dict[str, Any]], problems: list[str]) -> str:
++    lines = ["| 架构 | 用例 | 指标通过 | 平均分 | 最低分项 | 不通过用例 |", "|---|---|---|---|---|---|"]
++
++    for s in summaries:
++        lowest = s["lowest"]
++
++        lines.append(
++            f"| {s['mode']} | {s['cases']} | {s['metrics_passed']}/{s['metrics_total']}"
++            f" ({s['metrics_pass_rate']:.0%}) | {s['avg_score'] if s['avg_score'] is not None else '-'}"
++            f" | {lowest['name'] if lowest else '-'} {lowest['score'] if lowest else ''}"
++            f" | {'、'.join(s['failed_cases']) or '无'} |"
++        )
++
++    return "\n".join(lines)
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description="评测质量门禁")
++    parser.add_argument("reports", nargs="+", help="留档 JSON 路径或通配符")
++    parser.add_argument("--min-metrics-pass-rate", type=float, default=0.95)
++    parser.add_argument("--min-avg-score", type=float, default=0.80)
++    parser.add_argument("--max-failed-cases", type=int, default=0)
++    parser.add_argument("--baseline", default=None, help="基线留档（用于拦截分数退化）")
++    parser.add_argument("--max-avg-drop", type=float, default=0.05)
++    parser.add_argument("--summary", default=None, help="输出 Markdown 摘要路径")
++    args = parser.parse_args()
++
++    reports = load_reports(args.reports)
++    summaries = [summarize(report) for report in reports]
++
++    baseline = None
++
++    if args.baseline:
++        baseline = summarize(load_reports([args.baseline])[0])
++
++    problems: list[str] = []
++
++    for summary in summaries:
++        problems.extend(
++            judge(
++                summary,
++                min_metrics_pass_rate=args.min_metrics_pass_rate,
++                min_avg_score=args.min_avg_score,
++                max_failed_cases=args.max_failed_cases,
++                baseline=baseline,
++                max_avg_drop=args.max_avg_drop,
++            )
++        )
++
++    table = render(summaries, problems)
++
++    print("=" * 72)
++    print("质量门禁 · 评测结果判定")
++    print("=" * 72)
++    print(table)
++    print()
++
++    if problems:
++        print("结论：❌ 不予放行")
++        for item in problems:
++            print(f"  - {item}")
++    else:
++        print("结论：✅ 放行（所有阈值满足）")
++
++    if args.summary:
++        body = ["## 质量门禁结果", "", table, "", "### 结论", ""]
++        body.append("❌ 不予放行" if problems else "✅ 放行")
++        body += [f"- {p}" for p in problems]
++        Path(args.summary).write_text("\n".join(body) + "\n", encoding="utf-8")
++        print(f"\nMarkdown 摘要已写入：{args.summary}")
++
++    return 1 if problems else 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
